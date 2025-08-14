@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Group Voice Call</title>
+<script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+<style>
+  body { font-family: sans-serif; background: #1e1f22; color: #e7eefc; text-align: center; padding: 20px; }
+  h1 { margin-bottom: 10px; }
+  button, input { padding: 10px 15px; margin: 5px; border-radius: 8px; border: none; font-size: 14px; }
+  input { width: 220px; }
+  audio { display: none; }
+
+  .call-area { display: flex; justify-content: center; flex-wrap: wrap; gap: 40px; margin-top: 40px; margin-bottom: 40px; }
+  .user-card { text-align: center; width: 140px; }
+  .avatar { width: 120px; height: 120px; border-radius: 50%; border: 5px solid #444; object-fit: cover; transition: 0.2s; }
+  .speaking { border-color: #00ff88; box-shadow: 0 0 20px #00ff88; }
+
+  #controls { display: none; justify-content: center; gap: 20px; margin-top: 20px; }
+  #controls button { width: 60px; height: 60px; border-radius: 50%; font-size: 18px; cursor: pointer; }
+  #btnMute { background: #5865f2; color: white; }
+  #btnHangup { background: #ed4245; color: white; }
+  #btnSettings { background: #4f545c; color: white; }
+
+  #settings { margin-top: 20px; padding: 15px; border-radius: 12px; background: #2b2d31; display: none; text-align: left; max-width: 300px; margin-left: auto; margin-right: auto; }
+  #settings input { width: 100%; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<h1>Guahh Private Chat</h1>
+
+<div>
+  <label>Your Peer ID:</label>
+  <input type="text" id="myId" readonly>
+  <button id="btnInit">Generate ID</button>
+</div>
+
+<div id="callUI">
+  <label>Call Peer ID (comma separated for multiple):</label>
+  <input type="text" id="peerIdInput" placeholder="peer1,peer2,...">
+  <button id="btnCall">Call</button>
+</div>
+
+<div class="call-area" id="callArea">
+  <!-- Your avatar -->
+  <div class="user-card" id="myCard">
+    <img id="myAvatar" class="avatar" src="https://api.dicebear.com/7.x/bottts/svg?seed=me" alt="Me">
+    <p id="myName">You</p>
+  </div>
+</div>
+
+<div id="controls">
+  <button id="btnMute">🎤</button>
+  <button id="btnHangup">📞</button>
+  <button id="btnSettings">⚙️</button>
+</div>
+
+<audio id="remoteAudio" autoplay></audio>
+
+<div id="settings">
+  <h3>Settings</h3>
+  <label>Display Name:</label>
+  <input type="text" id="displayName" placeholder="Your name">
+  <button id="btnSetName">Set</button><br><br>
+
+  <label>Upload PFP:</label>
+  <input type="file" id="pfpUpload" accept="image/*"><br><br>
+</div>
+
+<script>
+let localStream;
+let isMuted = false;
+let peer;
+const calls = {}; // peerId => call
+
+const btnInit = document.getElementById('btnInit');
+const myIdInput = document.getElementById('myId');
+const peerIdInput = document.getElementById('peerIdInput');
+const btnCall = document.getElementById('btnCall');
+const btnMute = document.getElementById('btnMute');
+const btnHangup = document.getElementById('btnHangup');
+const btnSettings = document.getElementById('btnSettings');
+
+const myAvatar = document.getElementById('myAvatar');
+const myName = document.getElementById('myName');
+const callUI = document.getElementById('callUI');
+const controls = document.getElementById('controls');
+const settingsPanel = document.getElementById('settings');
+const callArea = document.getElementById('callArea');
+
+const displayNameInput = document.getElementById('displayName');
+const btnSetName = document.getElementById('btnSetName');
+const pfpUpload = document.getElementById('pfpUpload');
+
+btnInit.onclick = async () => {
+  localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  btnMute.disabled = false;
+
+  peer = new Peer();
+  peer.on('open', id => { myIdInput.value = id; });
+
+  // Answer incoming calls
+  peer.on('call', call => {
+    call.answer(localStream);
+    addCall(call);
+  });
+
+  // Detect local speaking
+  startSpeakingDetection(localStream, myAvatar);
+};
+
+btnCall.onclick = () => {
+  if (!peerIdInput.value || !localStream) return;
+  const peerIds = peerIdInput.value.split(',').map(p => p.trim());
+  peerIds.forEach(pid => {
+    if (!calls[pid]) {
+      const call = peer.call(pid, localStream);
+      addCall(call);
+    }
+  });
+  switchToCallUI();
+};
+
+btnMute.onclick = () => {
+  if (!localStream) return;
+  isMuted = !isMuted;
+  localStream.getAudioTracks()[0].enabled = !isMuted;
+  btnMute.textContent = isMuted ? '🔇' : '🎤';
+};
+
+btnHangup.onclick = () => {
+  Object.values(calls).forEach(call => call.close());
+  Object.keys(calls).forEach(k => delete calls[k]);
+  resetUI();
+};
+
+btnSettings.onclick = () => {
+  settingsPanel.style.display = settingsPanel.style.display === "block" ? "none" : "block";
+};
+
+btnSetName.onclick = () => {
+  myName.textContent = displayNameInput.value || "You";
+};
+
+pfpUpload.onchange = e => {
+  const file = e.target.files[0];
+  if(file){
+    const url = URL.createObjectURL(file);
+    myAvatar.src = url;
+  }
+};
+
+// --- Helper functions ---
+function addCall(call) {
+  const peerId = call.peer;
+  calls[peerId] = call;
+
+  // Create remote user card
+  let card = document.createElement('div');
+  card.className = 'user-card';
+  card.id = 'card-' + peerId;
+  card.innerHTML = `
+    <img class="avatar" id="avatar-${peerId}" src="https://api.dicebear.com/7.x/bottts/svg?seed=${peerId}">
+    <p id="name-${peerId}">${peerId}</p>
+  `;
+  callArea.appendChild(card);
+
+  call.on('stream', stream => {
+    const audio = document.createElement('audio');
+    audio.srcObject = stream;
+    audio.autoplay = true;
+    document.body.appendChild(audio);
+    startSpeakingDetection(stream, document.getElementById('avatar-' + peerId));
+  });
+
+  call.on('close', () => {
+    const c = document.getElementById('card-' + peerId);
+    if(c) c.remove();
+    delete calls[peerId];
+    if(Object.keys(calls).length === 0) resetUI();
+  });
+
+  switchToCallUI();
+}
+
+function switchToCallUI() {
+  callUI.style.display = "none";
+  controls.style.display = "flex";
+}
+
+function resetUI() {
+  callUI.style.display = "block";
+  controls.style.display = "none";
+  // Remove all remote avatars
+  Object.keys(calls).forEach(peerId => {
+    const c = document.getElementById('card-' + peerId);
+    if(c) c.remove();
+  });
+}
+
+function startSpeakingDetection(stream, avatarEl) {
+  const audioContext = new AudioContext();
+  const analyser = audioContext.createAnalyser();
+  const source = audioContext.createMediaStreamSource(stream);
+  source.connect(analyser);
+  analyser.fftSize = 256;
+  const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+  function checkVolume() {
+    analyser.getByteFrequencyData(dataArray);
+    let volume = dataArray.reduce((a,b) => a+b) / dataArray.length;
+    if(volume > 10) avatarEl.classList.add('speaking');
+    else avatarEl.classList.remove('speaking');
+    requestAnimationFrame(checkVolume);
+  }
+  checkVolume();
+}
+</script>
+</body>
+</html>
