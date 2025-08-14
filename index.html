@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>input test</title>
+</head>
+<body>
+
+<input type="text" id="input" placeholder="type egg">
+<h1 id="eggText"></h1>
+
+<script>
+const input = document.getElementById('input');
+const eggText = document.getElementById('eggText');
+
+function checkEgg() {
+    if (input.value.includes('egg')) {
+        eggText.innerText = "egg!";
+    } else {
+        eggText.innerText = "";
+    }
+    if (input.value.includes('guahh')) {
+        window.location.href = "index (1).html";
+    }
+}
+
+setInterval(checkEgg, 100);
+</script>
+
+</body>
+</html>
